@@ -1,0 +1,322 @@
+// Your sheet name in the document where the data will be put
+var sheetName = "data_instagram";
+// sheet name storing the instagram IDs of the brands we want to pull info
+var id_table = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("brand_table");
+// Your instagram user id
+//var user_id = "1461021204"; //find your id here : https://codeofaninja.com/tools/find-instagram-user-id
+
+//multiple user ids
+var user_ids = id_table.getRange(2, 3,id_table.getLastRow()-1).getValues();
+//brand range:
+var brand = id_table.getRange(2, 1,id_table.getLastRow()-1).getValues();
+//country range:
+var country = id_table.getRange(2, 2,id_table.getLastRow()-1).getValues();
+
+var instagram_base_url = "https://www.instagram.com/graphql/query/";
+
+//----------------------------------------------------Using the scraping function to scrap multiple IG accounts------------------
+function MultipleAccounts() {
+  for (var i = 0; i < user_ids.length;i++){
+    Logger.log(user_ids[i]) //printing the instgram ID
+    insertFollowerCount (sheetName,user_ids[i], brand[i], country[i])//using the scrapping function for each IG ids
+    sleep(1,2) ; //adding a random sleep time between 1 and 2 sec between each request to avoid ban
+  }
+  //formating dates:
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(sheetName);
+  sheet.getRange('A:A').activate();
+  sheet.getActiveRangeList().setNumberFormat('dd/MM/yyyy');
+};
+//---------------------------------------------------- Scraping function ----------------------------------------------------
+function insertFollowerCount(sheetName, user_id, brand, country) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(sheetName);
+    //var previousData = prevData(user_id);
+    var followers = getFollowers(user_id);
+    var following = getFollowing(user_id);
+    var medias = getMedias(user_id);
+    var engagement = getEngagement(medias, followers);
+    var brand = brand.toString();
+    var country = country.toString();
+    var platform = "Instagram";
+    Date.prototype.addHours = function(h) {
+    this.setTime(this.getTime() + (h*60*60*1000));
+    return this;
+  }
+    var date = new Date();
+    var firstDay = new Date(date.getFullYear(), date.getMonth(), 1).addHours(4);//firstday of the month (01/mm/yyyy)
+    console.log(firstDay);
+    sheet.appendRow([Utilities.formatDate(firstDay, "GMT", "dd-MM-yyyy"),platform, brand, country, followers, following, medias.count, engagement.totalLikes, engagement.totalComments, engagement.EngagementRatio]);
+};
+
+//------------------------------------------------- Functions used in the scraping function -----------------------------------
+//random sleeping time function between min and max in seconds
+function sleep(min, max)
+{
+  time_sleep =  (Math.floor(Math.random() * (max - min + 1)) + min)*1000;
+
+  return Utilities.sleep(time_sleep)
+}
+
+function getFollowers(user_id) {
+  try{
+    return parseInt(fetch(instagram_base_url +  "?query_hash=37479f2b8209594dde7facb0d904896a&variables=%7B%22id%22%3A%22" + user_id + "%22%2C%22first%22%3A24%7D")['data']['user']['edge_followed_by']['count']);
+  }
+  catch(e){
+    return(-1)
+    Logger.log("User_id not found...");
+  }
+}
+
+function getFollowing(user_id) {
+  try{
+    return parseInt(fetch(instagram_base_url + "?query_hash=58712303d941c6855d4e888c5f0cd22f&variables=%7B%22id%22%3A%22" + user_id + "%22%2C%22first%22%3A24%7D")['data']['user']['edge_follow']['count']);
+  }
+  catch(e){
+    return(-1)
+    Logger.log("User_id not found...");
+  }
+}
+
+function getMedias(user_id) {
+  try{
+      return fetch(instagram_base_url + "?query_hash=f2405b236d85e8296cf30347c9f08c2a&variables=%7B%22id%22%3A%22" + user_id + "%22%2C%22first%22%3A12%7D")['data']['user']['edge_owner_to_timeline_media'];
+  }
+  catch(e){
+    return(-1)
+    Logger.log("User_id not found...");
+  }
+}
+
+function getEngagement(medias, followers) {
+    var totalComments = 0,
+        totalLikes = 0;
+        j = 0;
+    for (var i = 0; i < 12; i++) {
+      try{
+        totalComments += parseInt(medias.edges[i].node.edge_media_to_comment.count)
+      }
+      catch(e){
+        Logger.log("Error while looping inside getEngagemet(), totalComments at i = " + i);
+        sleep(1,3);
+        }
+    };
+    for (var l = 0; l < 12; l++) {
+      try{
+        totalLikes += parseInt(medias.edges[l].node.edge_media_preview_like.count)
+      }
+      catch(e){
+        Logger.log("Error while looping inside getEngagemet(), totalLikes at l = " + l);
+        sleep(1,3);
+        }
+    };
+    var engagementRatio = (((totalLikes + totalComments)) / followers) / 12;
+    return {
+        mediaCount: parseInt(medias.count),
+        totalComments: totalComments,
+        totalLikes: totalLikes,
+        EngagementRatio: engagementRatio
+    }
+}
+
+//paste your cookie value below.
+var header = {'cookie': 'mid=YKyqNQALAAFVHaupieqv5EYrgqoX; ig_did=0422414D-90FA-41AE-96EB-28CE727A5F54; csrftoken=lXTH4iGGyqMlCkNH98XYvKzsyGON4eAg; ds_user_id=48086017083; sessionid=48086017083:d11ytEFa4Ofdc7:22; rur=PRN'};
+
+function fetch(url) {
+  var ignoreError = {
+    "muteHttpExceptions": true,
+    "validateHttpsCertificates":false,
+    "headers":header
+  };
+  var source = UrlFetchApp.fetch(url, ignoreError).getContentText();
+  var data = JSON.parse(source);
+  return data;
+}
+
+
+//function prevData() {
+    //var ss = SpreadsheetApp.getActiveSpreadsheet();
+    //var sheet = ss.getSheetByName(sheetName);
+    //var Avals = sheet.getRange("B1:B").getValues();
+    //var Alast = Avals.filter(String).length;
+    //var prevFollowers = sheet.getRange("B"+Alast).getValues(); //use here the followers column
+    //var prevFollowing = sheet.getRange("D"+Alast).getValues(); //use here the following col
+    //var prevEngagement = sheet.getRange("I"+Alast).getValues(); //use here the engagement ratio col
+  //return {
+    //followers: parseInt(prevFollowers),
+    //following: parseInt(prevFollowing),
+    //engagement: prevEngagement    
+  //}
+   
+//};
+
+//-------------------------------------------------------------------------------------------------------------------------
+
+
+//------------------------------------------MultipleAccounts function with a password--------------------------------------
+function MultipleAccountsWithPassword() {
+  var SS = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+
+  // first prompt
+  var presult = ui.prompt(
+    "Please Enter the Password to Use this Feature.",
+    ui.ButtonSet.OK_CANCEL);
+
+  var password = "Password";
+  var pbutton = presult.getSelectedButton();
+  var ptext = presult.getResponseText();
+
+  // User clicked "OK" on first prompt
+  if (pbutton == ui.Button.CANCEL) {
+    ui.alert('The Process Was Ended.');
+    } else if (pbutton == ui.Button.CLOSE) {
+      ui.alert('The Process Was Ended.');
+    } else if (ptext != password) {
+      Password();   
+    } else {
+      MultipleAccounts(); //if password is correct execute the main function
+    }
+  }
+
+function Password() {
+  var SS = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.alert("The Password is Incorrect. Retry?",
+      ui.ButtonSet.OK_CANCEL);
+
+  if (response == ui.Button.CANCEL) {
+    ui.alert("The Process Was Ended.");
+  } else if (response == ui.Button.CLOSE) {
+    ui.alert("The Process Was ended.");
+  } else {
+    Cancel();
+  }
+}
+
+//-----------------------------------------functions used in the update functions------------------------------------------------
+
+//function that returns the row index of a string in a column (specified by its index)
+function rowOf(lookupValue, columnToLookInIndex, sheetname) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(sheetname);
+  var dataRange = sheet.getRange(2, columnToLookInIndex,sheet.getLastRow());
+  var values = dataRange.getValues();
+  //looping to convert the elements of the lookup array to string:
+  for (var i = 0; i < values.length; i++){
+    values[i] = values[i].toString();
+  }
+  //finds the last index in the array matching the lookupValue:
+  var index = values.lastIndexOf(lookupValue) + 2;
+
+  return index;
+}
+
+//function to convert date value to dd/mm/yyyy string:
+function convertDate(inputFormat) {
+  function pad(s) { return (s < 10) ? '0' + s : s; }
+  var d = new Date(inputFormat)
+  return [pad(d.getDate()), pad(d.getMonth()+1), d.getFullYear()].join('/')
+}
+
+//using the sheet_for_update, we update the new data to the historybackup (new instagram, facebook and china data)
+function update_new_data() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet()
+  var update_sheet = spreadsheet.getSheetByName('sheet_for_update')
+  var sheet_result = spreadsheet.getSheetByName('history_backup')
+  var destination_row = sheet_result.getLastRow()+1;
+  var new_data = update_sheet.getRange('sheet_for_update!A2:E445').getValues();
+  sheet_result.getRange(destination_row,1,new_data.length,new_data[0].length).setValues(new_data);
+};
+//-------------------------------------------------Main update function---------------------------------------------
+function update_all() {
+  var ui = SpreadsheetApp.getUi();
+
+  // first prompt
+  var presult = ui.prompt(
+    "Please Enter the Password to Use this Feature.",
+    ui.ButtonSet.OK_CANCEL);
+
+  var password = "Password";
+  var pbutton = presult.getSelectedButton();
+  var ptext = presult.getResponseText();
+
+  // User clicked "OK" on first prompt
+  if (pbutton == ui.Button.CANCEL) {
+    ui.alert('The Process Was Ended.');
+    } else if (pbutton == ui.Button.CLOSE) {
+      ui.alert('The Process Was Ended.');
+    } else if (ptext != password) {
+      Password();   
+    } else {//if password is correct execute the instructions
+      var ss = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("history_backup");
+      ss.getRange('A1').activate();
+      ss.getFilter().sort(1, true);//sort the history by asc dates
+      update_new_data();
+      //expanding the formula in column G to the end:
+      ss.getRange('G2').copyTo(ss.getRange('G3:G'), SpreadsheetApp.CopyPasteType.PASTE_NORMAL, false);
+      ss.getRange('A1').activate();
+      ss.getFilter().sort(1, true);//sort the history by asc dates
+
+    }
+  }
+//-------------------------------------------------------------------------------------------------------------------
+//Setting up the gsheet menu to run the main macro easily
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Data update menu')
+      .addItem('Instagram scraper', "MultipleAccountsWithPassword")
+      .addItem('Update all data', "update_all")
+      .addToUi();
+}
+
+///---------------------------------------------------------------------------------------------------------------------
+
+// Facebook Fans Counter
+// Made by Martin Hassman, http://twitter.com/hassmanm
+// Released as Public Domain
+// Look at http://labs.met.cz/ for other tools
+//
+
+function FacebookFans(aPageId)
+{
+  if (aPageId === undefined || aPageId === null)
+  {
+    throw "No parameter specified. Write Facebook PageID as parameter."
+  }
+
+  if (typeof aPageId != "number")
+    throw "Parameter must be number.";
+  
+  // See http://developers.facebook.com/docs/reference/fql/page/ for API documentation
+  var url = "http://api.facebook.com/method/fql.query?query=SELECT%20page_id,page_url,fan_count%20FROM%20page%20%20WHERE%20page_id=%22" + encodeURIComponent(aPageId) + "%22";
+
+  var response = UrlFetchApp.fetch(url);
+  
+  if (response.getResponseCode() != 200)
+    throw "Unexpected response code from Facebook.";
+  
+  var responseText = response.getContentText();
+  
+  if (responseText == null || responseText == "")
+    throw "Empty response from Facebook.";
+
+  var fan_count = 0;
+  
+  try
+  {
+    var xml = Xml.parse(responseText, false);
+    var page = xml.getElement().getElement();
+    
+    if (page == null)
+      throw "Wrong PageID.";
+    
+    fan_count = parseInt(page.getElement("fan_count").getText());
+  }
+  catch (e)
+  {
+    throw "Problem with response from Facebook: " + e;
+  }
+  
+  return fan_count;
+}
